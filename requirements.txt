@@ -1,2 +1,2 @@
 pymicro-wakeword==1.0.0
-wyoming==1.5.4
+wyoming==1.6.0
