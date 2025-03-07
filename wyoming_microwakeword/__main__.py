@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import List, Set
+from typing import Dict, List, Set
 
 from pymicro_wakeword import MicroWakeWord, Model
 from wyoming.audio import AudioChunk, AudioChunkConverter, AudioStart, AudioStop
@@ -46,6 +47,8 @@ async def main() -> None:
         help="Print version and exit",
     )
 
+    parser.add_argument("--custom-model-dir", action="append", default=[], help="Path to directory with custom wake word models and json configuration files")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO, format=args.log_format
@@ -84,6 +87,16 @@ class Detector:
     mww: MicroWakeWord
     detected: bool = False
 
+@dataclass
+class CustomModel:
+    name: str
+    path: Path
+    wake_word: str
+    author: str
+    website: str
+    version: int | str
+    languages: List[str]
+
 
 class MicroWakeWordEventHandler(AsyncEventHandler):
     """Event handler for clients."""
@@ -101,9 +114,49 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
         self.converter = AudioChunkConverter(rate=16000, width=2, channels=1)
         self.detectors: List[Detector] = []
         self.models: Set[Model] = set()
+        self.custom_models: Dict[str, CustomModel] = {}
+
+        if cli_args.custom_model_dir:
+            self._load_custom_models(Path(cli_args.custom_model_dir[0]))
 
         _LOGGER.debug("Client connected: %s", self.client_id)
 
+    def _load_custom_models(self, custom_model_dir: Path) -> None:
+        """Load custom models from directory."""
+        if not custom_model_dir.is_dir():
+            _LOGGER.error("Custom model directory does not exist: %s", custom_model_dir)
+            return
+        
+        for model_path  in custom_model_dir.glob("*.json"):
+            model_name = model_path.stem
+            
+            wake_word = None
+            author = None
+            website = None
+            languages = []
+            version = None
+            try:
+                with open(model_path, "r") as f:
+                    model_config = json.load(f)
+                    wake_word = model_config.get("wake_word")
+                    author = model_config.get("author")
+                    website = model_config.get("website")
+                    languages = model_config.get("languages")
+                    version = model_config.get("version")
+
+            except Exception as e:
+                _LOGGER.error("Failed to parse model config %s: %s", model_path, e)
+            self.custom_models[model_name] = CustomModel(
+                name=model_name, 
+                path=model_path, 
+                wake_word=wake_word if wake_word else "Unknown",
+                author=author if author else "Unknown",
+                website=website if website else "Unknown",
+                languages=languages if languages else [],
+                version=version if version else "Unknown"
+            )
+            _LOGGER.debug("Loaded custom model: %s (%s)", model_name, model_path)
+    
     async def handle_event(self, event: Event) -> bool:
         if Describe.is_type(event.type):
             wyoming_info = self._get_info()
@@ -118,17 +171,30 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                 for name in detect.names:
                     try:
                         self.models.add(Model(name))
+                        continue
                     except ValueError:
+                        pass
+
+                    if name in self.custom_models.keys():
+                        pass
+                    else:
+                        _LOGGER.debug("Couldn't find model %s in custom model keys %s", name, self.custom_models.keys())
                         _LOGGER.warning("Unknown model name: %s", name)
         elif AudioStart.is_type(event.type):
-            if not self.models:
+            self.detectors = []
+            if not self.models and not self.custom_models:
                 # Default
                 self.models.add(DEFAULT_MODEL)
-
-            self.detectors = [
-                Detector(name=m.value, mww=MicroWakeWord.from_builtin(m))
-                for m in self.models
-            ]
+            
+            for model in self.models:
+                self.detectors.append(
+                    Detector(name=model.value, mww=MicroWakeWord.from_builtin(model))
+                )
+            
+            for model in self.custom_models.values():
+                self.detectors.append(
+                    Detector(name=model.name, mww=MicroWakeWord.from_config(model.path))
+                )
             _LOGGER.debug("Loaded models: %s", self.models)
         elif AudioChunk.is_type(event.type):
             chunk = self.converter.convert(AudioChunk.from_event(event))
@@ -161,6 +227,37 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
         _LOGGER.debug("Client disconnected: %s", self.client_id)
 
     def _get_info(self) -> Info:
+        wake_models = [
+            WakeModel(
+                name=model.value,
+                description=_model_phrase(model),
+                phrase=_model_phrase(model),
+                attribution=Attribution(
+                    name="kahrendt",
+                    url="https://github.com/kahrendt/microWakeWord/",
+                ),
+                installed=True,
+                languages=["en"],
+                version="2.0.0",
+            )
+            for model in Model
+        ]
+
+        for model_name, custom_model in self.custom_models.items():
+            wake_models.append(
+                WakeModel(
+                    name=model_name,
+                    description=custom_model.wake_word,
+                    phrase=custom_model.wake_word,
+                    attribution=Attribution(
+                        name=custom_model.author,
+                        url=custom_model.website,
+                    ),
+                    installed=True,
+                    languages=custom_model.languages,
+                    version=custom_model.version,
+                )
+            )
         return Info(
             wake=[
                 WakeProgram(
@@ -172,21 +269,7 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                     ),
                     installed=True,
                     version=__version__,
-                    models=[
-                        WakeModel(
-                            name=model.value,
-                            description=_model_phrase(model),
-                            phrase=_model_phrase(model),
-                            attribution=Attribution(
-                                name="kahrendt",
-                                url="https://github.com/kahrendt/microWakeWord/",
-                            ),
-                            installed=True,
-                            languages=["en"],
-                            version="2.0.0",
-                        )
-                        for model in Model
-                    ],
+                    models=wake_models,
                 )
             ],
         )
