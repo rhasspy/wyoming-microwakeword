@@ -178,7 +178,6 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                     if name in self.custom_models.keys():
                         pass
                     else:
-                        _LOGGER.debug("Couldn't find model %s in custom model keys %s", name, self.custom_models.keys())
                         _LOGGER.warning("Unknown model name: %s", name)
         elif AudioStart.is_type(event.type):
             self.detectors = []
