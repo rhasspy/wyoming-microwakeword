@@ -5,10 +5,9 @@ import logging
 import time
 from dataclasses import dataclass
 from functools import partial
-from pathlib import Path
-from typing import List, Set
+from typing import List, Optional, Set
 
-from pymicro_wakeword import MicroWakeWord, Model
+from pymicro_wakeword import MicroWakeWord, MicroWakeWordFeatures, Model
 from wyoming.audio import AudioChunk, AudioChunkConverter, AudioStart, AudioStop
 from wyoming.event import Event
 from wyoming.info import Attribution, Describe, Info, WakeModel, WakeProgram
@@ -18,7 +17,6 @@ from wyoming.wake import Detect, Detection, NotDetected
 from . import __version__
 
 _LOGGER = logging.getLogger()
-_DIR = Path(__file__).parent
 
 DEFAULT_MODEL = Model.OKAY_NABU
 
@@ -33,6 +31,13 @@ async def main() -> None:
         nargs="?",
         const="microWakeWord",
         help="Enable discovery over zeroconf with optional name (default: microWakeWord)",
+    )
+    #
+    parser.add_argument(
+        "--refractory-seconds",
+        type=float,
+        default=2.0,
+        help="Seconds before a wake word can be detected again (default: 2)",
     )
     #
     parser.add_argument("--debug", action="store_true", help="Log DEBUG messages")
@@ -83,6 +88,7 @@ class Detector:
     name: str
     mww: MicroWakeWord
     detected: bool = False
+    last_detected: Optional[float] = None
 
 
 class MicroWakeWordEventHandler(AsyncEventHandler):
@@ -101,6 +107,7 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
         self.converter = AudioChunkConverter(rate=16000, width=2, channels=1)
         self.detectors: List[Detector] = []
         self.models: Set[Model] = set()
+        self.mww_features = MicroWakeWordFeatures()
 
         _LOGGER.debug("Client connected: %s", self.client_id)
 
@@ -132,16 +139,31 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
             _LOGGER.debug("Loaded models: %s", self.models)
         elif AudioChunk.is_type(event.type):
             chunk = self.converter.convert(AudioChunk.from_event(event))
-            for detector in self.detectors:
-                if detector.mww.process_streaming(chunk.audio):
-                    _LOGGER.debug(
-                        "Detected %s from client %s",
-                        detector.mww.wake_word,
-                        self.client_id,
-                    )
-                    await self.write_event(
-                        Detection(name=detector.name, timestamp=chunk.timestamp).event()
-                    )
+            for features in self.mww_features.process_streaming(chunk.audio):
+                for detector in self.detectors:
+                    if detector.mww.process_streaming(features):
+                        if (detector.last_detected is not None) and (
+                            (time.monotonic() - detector.last_detected)
+                            < self.cli_args.refractory_seconds
+                        ):
+                            _LOGGER.debug(
+                                "Skipping detection within refractory period for %s from client %s",
+                                detector.mww.wake_word,
+                                self.client_id,
+                            )
+                            continue
+
+                        _LOGGER.debug(
+                            "Detected %s from client %s",
+                            detector.mww.wake_word,
+                            self.client_id,
+                        )
+                        await self.write_event(
+                            Detection(
+                                name=detector.name, timestamp=chunk.timestamp
+                            ).event()
+                        )
+                        detector.last_detected = time.monotonic()
 
         elif AudioStop.is_type(event.type):
             # Inform client if not detections occurred
