@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1
+
+- Push Docker images
+
 ## 2.0.0
 
 - Use `pymicro-wakeword`

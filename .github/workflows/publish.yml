@@ -75,7 +75,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: false
+          push: true
           tags: |
             rhasspy/wyoming-microwakeword:latest
             rhasspy/wyoming-microwakeword:${{ steps.read_ver.outputs.tag }}
