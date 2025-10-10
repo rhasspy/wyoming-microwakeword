@@ -112,32 +112,7 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
         _LOGGER.debug("Client connected: %s", self.client_id)
 
     async def handle_event(self, event: Event) -> bool:
-        if Describe.is_type(event.type):
-            wyoming_info = self._get_info()
-            await self.write_event(wyoming_info.event())
-            _LOGGER.debug("Sent info to client: %s", self.client_id)
-            return True
-
-        if Detect.is_type(event.type):
-            detect = Detect.from_event(event)
-            self.models.clear()
-            if detect.names:
-                for name in detect.names:
-                    try:
-                        self.models.add(Model(name))
-                    except ValueError:
-                        _LOGGER.warning("Unknown model name: %s", name)
-        elif AudioStart.is_type(event.type):
-            if not self.models:
-                # Default
-                self.models.add(DEFAULT_MODEL)
-
-            self.detectors = [
-                Detector(name=m.value, mww=MicroWakeWord.from_builtin(m))
-                for m in self.models
-            ]
-            _LOGGER.debug("Loaded models: %s", self.models)
-        elif AudioChunk.is_type(event.type):
+        if AudioChunk.is_type(event.type):
             chunk = self.converter.convert(AudioChunk.from_event(event))
             for features in self.mww_features.process_streaming(chunk.audio):
                 for detector in self.detectors:
@@ -165,7 +140,25 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                         )
                         detector.detected = True
                         detector.last_detected = time.monotonic()
+        elif Detect.is_type(event.type):
+            detect = Detect.from_event(event)
+            self.models.clear()
+            if detect.names:
+                for name in detect.names:
+                    try:
+                        self.models.add(Model(name))
+                    except ValueError:
+                        _LOGGER.warning("Unknown model name: %s", name)
+        elif AudioStart.is_type(event.type):
+            if not self.models:
+                # Default
+                self.models.add(DEFAULT_MODEL)
 
+            self.detectors = [
+                Detector(name=m.value, mww=MicroWakeWord.from_builtin(m))
+                for m in self.models
+            ]
+            _LOGGER.debug("Loaded models: %s", self.models)
         elif AudioStop.is_type(event.type):
             # Inform client if not detections occurred
             if not any(d.detected for d in self.detectors):
@@ -175,6 +168,10 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                 _LOGGER.debug(
                     "Audio stopped without detection from client: %s", self.client_id
                 )
+        elif Describe.is_type(event.type):
+            wyoming_info = self._get_info()
+            await self.write_event(wyoming_info.event())
+            _LOGGER.debug("Sent info to client: %s", self.client_id)
         else:
             _LOGGER.debug("Unexpected event: type=%s, data=%s", event.type, event.data)
 
