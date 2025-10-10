@@ -77,7 +77,9 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
-          tags: ${{ steps.read_ver.outputs.tag }} latest
+          tags: |
+            rhasspy/wyoming-microwakeword:latest
+            rhasspy/wyoming-microwakeword:${{ steps.read_ver.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
