@@ -3,7 +3,7 @@
 ## 2.0.0
 
 - Use `pymicro-wakeword`
-- Add `--custom-model-dir` for directories with custom microWakeWord models
+- Add `--custom-model-dir` for directories with custom microWakeWord models (credit: michelle-avery)
 - Include some custom models
 - Rearrange events by frequency
 
