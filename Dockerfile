@@ -4,7 +4,6 @@ ARG TARGETVARIANT
 
 # Install microWakeWord
 WORKDIR /usr/src
-ENV WYOMING_MICROWAKEWORD_VERSION=1.0.0
 
 COPY ./ ./
 RUN \

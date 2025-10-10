@@ -26,7 +26,7 @@ classifiers = [
 requires-python = ">=3.9.0"
 dependencies = [
     "pymicro-wakeword>=2,<3",
-    "wyoming>=1.7.2,<2",
+    "wyoming>=1.8,<2",
 ]
 
 [project.urls]

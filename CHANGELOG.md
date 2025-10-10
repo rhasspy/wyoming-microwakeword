@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.2 (unreleased)
+
+- Bump Wyoming to 1.8 and fix ZeroConf
+
 ## 2.0.1
 
 - Push Docker images
