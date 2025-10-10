@@ -1,0 +1,4 @@
+*
+!wyoming_microwakeword/*.py
+!pyproject.toml
+!docker_run.sh

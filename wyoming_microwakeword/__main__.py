@@ -163,6 +163,7 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                                 name=detector.name, timestamp=chunk.timestamp
                             ).event()
                         )
+                        detector.detected = True
                         detector.last_detected = time.monotonic()
 
         elif AudioStop.is_type(event.type):
