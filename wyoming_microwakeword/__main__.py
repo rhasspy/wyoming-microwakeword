@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import List, Optional, Set
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Union
 
 from pymicro_wakeword import MicroWakeWord, MicroWakeWordFeatures, Model
 from wyoming.audio import AudioChunk, AudioChunkConverter, AudioStart, AudioStop
@@ -21,6 +23,24 @@ _LOGGER = logging.getLogger()
 DEFAULT_MODEL = Model.OKAY_NABU
 
 
+@dataclass
+class CustomModel:
+    """Custom wake word model."""
+
+    name: str
+    config_path: Path
+    model_path: Path
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, CustomModel):
+            return self.name == other.name
+
+        return NotImplemented
+
+
 async def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser()
@@ -33,6 +53,12 @@ async def main() -> None:
         help="Enable discovery over zeroconf with optional name (default: microWakeWord)",
     )
     #
+    parser.add_argument(
+        "--custom-model-dir",
+        action="append",
+        default=[],
+        help="Path to directory with custom wake word models",
+    )
     parser.add_argument(
         "--refractory-seconds",
         type=float,
@@ -57,6 +83,34 @@ async def main() -> None:
     )
     _LOGGER.debug(args)
 
+    # Find custom models
+    custom_models: Dict[str, CustomModel] = {}
+    for model_dir_str in args.custom_model_dir:
+        model_dir = Path(model_dir_str)
+        for config_path in model_dir.glob("*.json"):
+            model_name = config_path.stem
+            if model_name in custom_models:
+                # Skip duplicate models in later directories
+                continue
+
+            with open(config_path, "r", encoding="utf-8") as config_file:
+                config = json.load(config_file)
+
+            if config.get("type") != "micro":
+                _LOGGER.debug("Not a microWakeWord model: %s", config_path)
+                continue
+
+            model_path = model_dir / config["model"]
+            if not model_path.exists():
+                _LOGGER.debug("Missing tflite model: %s", model_path)
+                continue
+
+            custom_models[model_name] = CustomModel(
+                name=model_name,
+                config_path=config_path,
+                model_path=model_path,
+            )
+
     _LOGGER.info("Ready")
 
     # Start server
@@ -75,7 +129,7 @@ async def main() -> None:
         _LOGGER.debug("Zeroconf discovery enabled")
 
     try:
-        await server.run(partial(MicroWakeWordEventHandler, args))
+        await server.run(partial(MicroWakeWordEventHandler, args, custom_models))
     except KeyboardInterrupt:
         pass
 
@@ -97,16 +151,18 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
     def __init__(
         self,
         cli_args: argparse.Namespace,
+        custom_models: Dict[str, CustomModel],
         *args,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
 
         self.cli_args = cli_args
+        self.custom_models = custom_models
         self.client_id = str(time.monotonic_ns())
         self.converter = AudioChunkConverter(rate=16000, width=2, channels=1)
         self.detectors: List[Detector] = []
-        self.models: Set[Model] = set()
+        self.models: Set[Union[Model, CustomModel]] = set()
         self.mww_features = MicroWakeWordFeatures()
 
         _LOGGER.debug("Client connected: %s", self.client_id)
@@ -145,6 +201,11 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
             self.models.clear()
             if detect.names:
                 for name in detect.names:
+                    custom_model = self.custom_models.get(name)
+                    if custom_model is not None:
+                        self.models.add(custom_model)
+                        continue
+
                     try:
                         self.models.add(Model(name))
                     except ValueError:
@@ -154,10 +215,22 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                 # Default
                 self.models.add(DEFAULT_MODEL)
 
-            self.detectors = [
-                Detector(name=m.value, mww=MicroWakeWord.from_builtin(m))
-                for m in self.models
-            ]
+            self.detectors = []
+            for model in self.models:
+                if isinstance(model, Model):
+                    self.detectors.append(
+                        Detector(
+                            name=model.value, mww=MicroWakeWord.from_builtin(model)
+                        )
+                    )
+                elif isinstance(model, CustomModel):
+                    self.detectors.append(
+                        Detector(
+                            name=model.name,
+                            mww=MicroWakeWord.from_config(model.config_path),
+                        )
+                    )
+
             _LOGGER.debug("Loaded models: %s", self.models)
         elif AudioStop.is_type(event.type):
             # Inform client if not detections occurred
@@ -181,6 +254,43 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
         _LOGGER.debug("Client disconnected: %s", self.client_id)
 
     def _get_info(self) -> Info:
+        # Builtin models
+        models = [
+            WakeModel(
+                name=model.value,
+                description=_model_phrase(model),
+                phrase=_model_phrase(model),
+                attribution=Attribution(
+                    name="kahrendt",
+                    url="https://github.com/kahrendt/microWakeWord/",
+                ),
+                installed=True,
+                languages=["en"],
+                version="2.0.0",
+            )
+            for model in Model
+        ]
+
+        # Custom models
+        for model_id, custom_model in self.custom_models.items():
+            with open(custom_model.config_path, "r", encoding="utf-8") as config_file:
+                config = json.load(config_file)
+
+            models.append(
+                WakeModel(
+                    name=model_id,
+                    description=config["wake_word"],
+                    phrase=config["wake_word"],
+                    attribution=Attribution(
+                        name=config.get("author", ""),
+                        url=config.get("website", ""),
+                    ),
+                    installed=True,
+                    languages=config.get("trained_languages", []),
+                    version=config.get("version", ""),
+                )
+            )
+
         return Info(
             wake=[
                 WakeProgram(
@@ -192,21 +302,7 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                     ),
                     installed=True,
                     version=__version__,
-                    models=[
-                        WakeModel(
-                            name=model.value,
-                            description=_model_phrase(model),
-                            phrase=_model_phrase(model),
-                            attribution=Attribution(
-                                name="kahrendt",
-                                url="https://github.com/kahrendt/microWakeWord/",
-                            ),
-                            installed=True,
-                            languages=["en"],
-                            version="2.0.0",
-                        )
-                        for model in Model
-                    ],
+                    models=models,
                 )
             ],
         )

@@ -14,6 +14,7 @@ from wyoming.info import Describe, Info
 from wyoming.wake import Detect, Detection, NotDetected
 
 _DIR = Path(__file__).parent
+_CUSTOM_MODEL_DIR = _DIR.parent / "wakewords"
 _SAMPLES_PER_CHUNK = 1024
 _DETECTION_TIMEOUT = 5
 
@@ -27,6 +28,8 @@ async def test_microwakeword() -> None:
         "wyoming_microwakeword",
         "--uri",
         "stdio://",
+        "--custom-model-dir",
+        str(_CUSTOM_MODEL_DIR),
         stdin=PIPE,
         stdout=PIPE,
     )
