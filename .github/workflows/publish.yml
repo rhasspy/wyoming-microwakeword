@@ -77,9 +77,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
-          tags:
-            - ${{ steps.read_ver.outputs.tag }}
-            - latest
+          tags: ${{ steps.read_ver.outputs.tag }} latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
