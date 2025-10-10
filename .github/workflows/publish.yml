@@ -150,7 +150,7 @@ jobs:
           path: RELEASE_NOTES.md
 
   github_release:
-    needs: [build, changelog, publish]
+    needs: [build, changelog]
     runs-on: ubuntu-latest
     permissions:
       contents: write
