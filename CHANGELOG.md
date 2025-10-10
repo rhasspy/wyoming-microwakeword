@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.2 (unreleased)
+## 2.0.2
 
 - Bump Wyoming to 1.8 and fix ZeroConf
 
