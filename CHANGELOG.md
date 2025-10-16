@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `wyoming-microwakeword` script
+
 ## 2.0.2
 
 - Bump Wyoming to 1.8 and fix ZeroConf

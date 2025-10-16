@@ -32,6 +32,9 @@ dependencies = [
 [project.urls]
 "Source Code" = "http://github.com/rhasspy/wyoming-microwakeword"
 
+[project.scripts]
+wyoming-microwakeword = "wyoming_microwakeword.__main__:run"
+
 [tool.setuptools]
 platforms = ["any"]
 zip-safe  = false
