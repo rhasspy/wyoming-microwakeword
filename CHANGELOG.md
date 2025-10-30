@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.1.0
 
+- Bump to pymicro-wakeword 2.1.0 (fix memory leak)
 - Add `wyoming-microwakeword` script
 
 ## 2.0.2

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name        = "wyoming-microwakeword"
-version     = "2.0.2"
+version     = "2.1.0"
 license     = {text = "Apache-2.0"}
 description = "Wyoming server for microWakeWord"
 readme      = "README.md"

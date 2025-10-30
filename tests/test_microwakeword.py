@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Set
 
 import pytest
-from wyoming.audio import wav_to_chunks
+from wyoming.audio import wav_to_chunks, AudioStart, AudioChunk, AudioStop
 from wyoming.event import async_read_event, async_write_event
 from wyoming.info import Describe, Info
 from wyoming.wake import Detect, Detection, NotDetected
@@ -30,6 +30,7 @@ async def test_microwakeword() -> None:
         "stdio://",
         "--custom-model-dir",
         str(_CUSTOM_MODEL_DIR),
+        "--debug",
         stdin=PIPE,
         stdout=PIPE,
     )
@@ -60,7 +61,6 @@ async def test_microwakeword() -> None:
         break
 
     for active_model in model_names:
-        # We want to use the 'okay nabu' model
         await async_write_event(Detect(names=[active_model]).event(), proc.stdin)
 
         # Test positive WAV
@@ -71,9 +71,15 @@ async def test_microwakeword() -> None:
                 await async_write_event(event.event(), proc.stdin)
 
         while True:
-            event = await asyncio.wait_for(
-                async_read_event(proc.stdout), timeout=_DETECTION_TIMEOUT
-            )
+            try:
+                event = await asyncio.wait_for(
+                    async_read_event(proc.stdout), timeout=_DETECTION_TIMEOUT
+                )
+            except TimeoutError as err:
+                raise TimeoutError(
+                    f"Timeout waiting for detection of {active_model}"
+                ) from err
+
             assert event is not None, "Unexpected disconnection"
 
             if not Detection.is_type(event.type):

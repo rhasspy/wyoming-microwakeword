@@ -242,6 +242,8 @@ class MicroWakeWordEventHandler(AsyncEventHandler):
                 _LOGGER.debug(
                     "Audio stopped without detection from client: %s", self.client_id
                 )
+
+            self.detectors.clear()
         elif Describe.is_type(event.type):
             wyoming_info = self._get_info()
             await self.write_event(wyoming_info.event())
